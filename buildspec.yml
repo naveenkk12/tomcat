@@ -1,0 +1,47 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      java: openjdk8
+    commands:
+      - apt-get update -y
+      - apt-get install -y software-properties-common
+      - add-apt-repository ppa:openjdk-r/ppa
+      - apt-get update -y
+      - apt-get install -y openjdk-8-jdk
+      - apt-get install -y maven
+  pre_build:
+    commands:
+      - echo Logging in to Amazom ECR...
+      - aws --version
+      - echo $AWS_DEFAULT_REGION
+      - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+      - echo Amazon ECR login successfull...
+      - REPOSITORY_URI=214472130589.dkr.ecr.us-east-1.amazonaws.com/demo-repo
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Maven Build...
+      - mvn install
+      - echo $REPOSITORY_URI
+      - echo Building the Docker image...          
+      - docker build -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker images...
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - printf '[{"name":"container-dev","imageUri":"%s"}]' $REPOSITORY_URI:latest > imagedefinitions_dev.json
+      - printf '[{"name":"container-qa","imageUri":"%s"}]' $REPOSITORY_URI:latest > imagedefinitions_qa.json
+      - printf '[{"name":"container-prod","imageUri":"%s"}]' $REPOSITORY_URI:latest > imagedefinitions_prod.json
+artifacts:
+  files:
+    - imagedefinitions_dev.json
+    - imagedefinitions_qa.json
+    - imagedefinitions_prod.json
